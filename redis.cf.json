@@ -1,0 +1,226 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Description" : "AWS CloudFormation template creating an OpsWorks Stack that will build a 4 node Redis Cluster.",
+  "Parameters" : {
+    "VPCId" : {
+      "Description" : "VPC to host the cluster",
+      "Type" : "String"
+    }
+  },
+  "Resources": {
+    "RedisClusterStack": {
+      "Type": "AWS::OpsWorks::Stack",
+      "Properties": {
+        "Name": {
+          "Ref": "AWS::StackName"
+        },
+        "DefaultOs": "Ubuntu 14.04 LTS",
+        "ConfigurationManager": { 
+          "Name": "Chef",
+          "Version": "12"
+        },
+        "ServiceRoleArn": {
+          "Fn::GetAtt": [ "OpsWorksServiceRole", "Arn"]            
+        },
+        "DefaultInstanceProfileArn": {
+          "Fn::GetAtt": [ "OpsWorksInstanceProfile", "Arn"]
+        },
+        "UseCustomCookbooks": true,
+        "CustomCookbooksSource" : {
+          "Type" : "git",
+          "Url" : "https://github.com/edwardbartholomew/opsworks-redis-cluster.git"
+        },
+        "UseOpsworksSecurityGroups": false
+      }
+    },
+    "RedisMasterLayer": {
+      "Type": "AWS::OpsWorks::Layer",
+      "Properties": {
+        "StackId": {
+          "Ref": "RedisClusterStack"
+        },
+        "Name": "redis-master",
+        "Type": "custom",
+        "Shortname": "redis-master",
+        "EnableAutoHealing": "true",
+        "AutoAssignElasticIps": "false",
+        "AutoAssignPublicIps": "true",
+        "CustomRecipes" : {
+          "Deploy" : ["opsworks-redis-cluster::master" ]
+        },
+        "CustomSecurityGroupIds" : [ { "Ref": "RedisSecurityGroup" } ]
+
+      }
+    },
+    "RedisSlaveLayer": {
+      "Type": "AWS::OpsWorks::Layer",
+      "Properties": {
+        "StackId": {
+          "Ref": "RedisClusterStack"
+        },
+        "Name": "redis-slaves",
+        "Type": "custom",
+        "Shortname": "redis-slaves",
+        "EnableAutoHealing": "true",
+        "AutoAssignElasticIps": "false",
+        "AutoAssignPublicIps": "true",
+        "CustomRecipes" : {
+          "Deploy" : ["opsworks-redis-cluster::slave" ]
+        },
+        "CustomSecurityGroupIds" : [ { "Ref": "RedisSecurityGroup" } ]
+      }
+    },    
+    "RedisMasterInstance": {
+      "Type": "AWS::OpsWorks::Instance",
+      "Properties": {
+        "StackId": {
+          "Ref": "RedisClusterStack"
+        },
+        "LayerIds": [
+          {
+            "Ref": "RedisMasterLayer"
+          }
+        ],
+        "InstanceType": "t2.micro",
+        "RootDeviceType": "ebs"
+      }
+    },
+    "RedisSlaveInstance1": {
+      "Type": "AWS::OpsWorks::Instance",
+      "Properties": {
+        "StackId": {
+          "Ref": "RedisClusterStack"
+        },
+        "LayerIds": [
+          {
+            "Ref": "RedisSlaveLayer"
+          }
+        ],
+        "AvailabilityZone": "us-east-1a",
+        "InstanceType": "t2.micro",
+        "RootDeviceType": "ebs"
+      }
+    },
+    "RedisSlaveInstance2": {
+      "Type": "AWS::OpsWorks::Instance",
+      "Properties": {
+        "StackId": {
+          "Ref": "RedisClusterStack"
+        },
+        "LayerIds": [
+          {
+            "Ref": "RedisSlaveLayer"
+          }
+        ],
+        "AvailabilityZone": "us-east-1b",
+        "InstanceType": "t2.micro",
+        "RootDeviceType": "ebs"
+      }
+    },  
+    "RedisSlaveInstance3": {
+      "Type": "AWS::OpsWorks::Instance",
+      "Properties": {
+        "StackId": {
+          "Ref": "RedisClusterStack"
+        },
+        "LayerIds": [
+          {
+            "Ref": "RedisSlaveLayer"
+          }
+        ],
+        "AvailabilityZone": "us-east-1c",
+        "InstanceType": "t2.micro",
+        "RootDeviceType": "ebs"
+      }
+    },          
+    "OpsWorksServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "opsworks.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "opsworks-service",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:*",
+                    "iam:PassRole",
+                    "cloudwatch:GetMetricStatistics",
+                    "elasticloadbalancing:*"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "OpsWorksInstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/"
+      }
+    },
+
+    "OpsWorksInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "OpsWorksInstanceRole"
+          }
+        ]
+      }
+    },
+    "RedisSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPCId" },
+        "GroupDescription" : "Enable Redis access",
+        "SecurityGroupIngress" : [
+          {"IpProtocol" : "tcp", "FromPort" : "6379", "ToPort" : "6379", "CidrIp" : "0.0.0.0/0"},
+          { "IpProtocol" : "tcp", "FromPort" : "16379", "ToPort" : "16379", "CidrIp" : "0.0.0.0/0"}
+         ]
+      }
+    }
+  },
+  "Outputs" : {
+    "StackId" : {
+      "Value" : { "Ref" : "RedisClusterStack" }
+    }
+  }
+}
