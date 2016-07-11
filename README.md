@@ -5,4 +5,8 @@ The resulting OpsWorks stack references a github repo containing a Chef cookbook
 aws cloudformation create-stack --stack-name redis-stack --template-body file://redis.cf.json --parameters ParameterKey=VPCId,ParameterValue=vpc-f74bbc92 --capabilities CAPABILITY_IAM
 
 ToDo:
-More parameters: ie) subnets
+More parameters: Subnets (rather than AZ)?
+
+Testing:
+Verify if master or slave: redis-cli -h <host> -p 6379 info |grep role
+Determine master node: redis-cli -h <host> -p 16379 sentinel get-master-addr-by-name redis-cluster
